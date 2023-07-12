@@ -1,7 +1,6 @@
+import logging
 import socket
 import threading
-import json
-
 
 # Classe para o cliente de chat
 class ChatClient:
@@ -11,24 +10,24 @@ class ChatClient:
 
     def send_message(self):
         while True:
-            message = input()
-            message_data = {"type": "message", "message": message}
-            message_json = json.dumps(message_data)
-            self.client_socket.send(message_json.encode())
+            try:
+                message = input()
+                self.client_socket.send(message.encode())
+            except socket.error as e:
+                logging.error(f"Erro ao enviar mensagem para o servidor: {e}")
+                self.shutdown()
 
     def receive_message(self):
         while True:
-            message_json = self.client_socket.recv(1024).decode()
-            message_data = json.loads(message_json)
-            message_type = message_data["type"]
-            if message_type == "join":
-                name = message_data["name"]
-                print(f"{name} entrou no chat.")
-            elif message_type == "message":
-                name = message_data["name"]
-                message = message_data["message"]
-                print(f"{name}: {message}")
+            try:
+                message = self.client_socket.recv(1024).decode()
+                print(message)
+            except socket.error as e:
+                logging.error(f"Erro ao receber mensagem do servidor: {e}")
+                self.shutdown()
 
+    def shutdown(self):
+        self.client_socket.close()
 
 # Configurações do cliente
 HOST = 'localhost'
