@@ -1,6 +1,10 @@
+import logging
 import socket
 import threading
 import json
+
+# Configuração do log
+logging.basicConfig(filename='chat_server.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Classe para o servidor de chat
 class ChatServer:
@@ -18,41 +22,57 @@ class ChatServer:
             json.dump(self.messages, file, indent=4)
 
     def start(self):
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(5)
-        print("Servidor iniciado. Aguardando conexões...")
+        try:
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(5)
+            logging.info("Servidor iniciado. Aguardando conexões...")
 
-        while True:
-            client_socket, client_address = self.server_socket.accept()
-            print(f"Conexão estabelecida com {client_address[0]}:{client_address[1]}")
-            self.client_sockets.append(client_socket)
-            threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+            while True:
+                client_socket, client_address = self.server_socket.accept()
+                logging.info(f"Conexão estabelecida com {client_address[0]}:{client_address[1]}")
+                self.client_sockets.append(client_socket)
+                threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+        except socket.error as e:
+            logging.error(f"Erro ao iniciar o servidor: {e}")
+            self.shutdown()
 
     def handle_client(self, client_socket):
-        name = client_socket.recv(1024).decode()
-        self.client_names.append(name)
-        self.broadcast({"type": "join", "name": name})
+        try:
+            name = client_socket.recv(1024).decode()
+            self.client_names.append(name)
+            self.broadcast(f"{name} entrou no chat.")
 
-        while True:
-            try:
-                message = client_socket.recv(1024).decode()
-                if message:
-                    message_data = {"type": "message", "name": name, "message": message}
-                    self.messages.append(message_data)  # Salvar a mensagem na lista de mensagens
-                    self.save_messages()  # Salvar as mensagens em um arquivo JSON
-                    self.broadcast(message_data)
-                else:
+            while True:
+                try:
+                    message = client_socket.recv(1024).decode()
+                    if message:
+                        message_data = {"type": "message", "name": name, "message": message}
+                        self.messages.append(message_data)  # Salvar a mensagem na lista de mensagens
+                        self.save_messages()  # Salvar as mensagens em um arquivo JSON
+                        self.broadcast(f"{name}: {message}")
+                    else:
+                        self.remove_client(client_socket)
+                        break
+                except (ConnectionResetError, ConnectionAbortedError) as e:
+                    logging.error(f"Erro na conexão com o cliente: {e}")
                     self.remove_client(client_socket)
                     break
-            except:
-                self.remove_client(client_socket)
-                break
+                except socket.error as e:
+                    logging.error(f"Erro no socket: {e}")
+                    self.remove_client(client_socket)
+                    break
+        except socket.error as e:
+            logging.error(f"Erro ao lidar com o cliente: {e}")
+            self.remove_client(client_socket)
 
     def broadcast(self, message):
         with self.lock:
-            message_json = json.dumps(message)
             for client_socket in self.client_sockets:
-                client_socket.send(message_json.encode())
+                try:
+                    client_socket.send(message.encode())
+                except socket.error as e:
+                    logging.error(f"Erro ao enviar mensagem para um cliente: {e}")
+                    self.remove_client(client_socket)
 
     def remove_client(self, client_socket):
         with self.lock:
@@ -63,6 +83,12 @@ class ChatServer:
                 self.client_names.remove(name)
                 client_socket.close()
                 self.broadcast(f"{name} saiu do chat.")
+
+    def shutdown(self):
+        with self.lock:
+            for client_socket in self.client_sockets:
+                client_socket.close()
+            self.server_socket.close()
 
 # Configurações do servidor
 HOST = 'localhost'
